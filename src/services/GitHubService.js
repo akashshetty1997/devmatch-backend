@@ -122,17 +122,32 @@ class GitHubService {
    */
   async getReadme(owner, repo) {
     try {
-      const response = await this.client.get(`/repos/${owner}/${repo}/readme`, {
-        headers: {
-          Accept: "application/vnd.github.v3.raw",
-        },
-      });
+      // Use axios directly to bypass the interceptor that throws on 404
+      const response = await axios.get(
+        `${config.github.apiUrl}/repos/${owner}/${repo}/readme`,
+        {
+          timeout: 10000,
+          headers: {
+            Accept: "application/vnd.github.v3.raw",
+            "User-Agent": "DevMatch-App",
+            ...(config.github.token && {
+              Authorization: `token ${config.github.token}`,
+            }),
+          },
+        }
+      );
       return response.data;
     } catch (error) {
-      if (error.statusCode === 404) {
+      // 404 means no README exists - that's okay
+      if (error.response?.status === 404) {
         return null;
       }
-      throw error;
+      // For other errors, log and return null to not break the page
+      logger.debug(
+        `Failed to fetch README for ${owner}/${repo}:`,
+        error.message
+      );
+      return null;
     }
   }
 
@@ -308,7 +323,10 @@ class GitHubService {
       const ghRepo = await this.getRepository(owner, repo);
 
       // Use existing static method to find or create
-      const savedRepo = await RepoSnapshot.findOrCreateFromGitHub(ghRepo.id, ghRepo);
+      const savedRepo = await RepoSnapshot.findOrCreateFromGitHub(
+        ghRepo.id,
+        ghRepo
+      );
 
       // Fetch and update README if not present or stale
       if (!savedRepo.readme || !savedRepo.readmeFetchedAt) {
@@ -327,29 +345,40 @@ class GitHubService {
       if (!savedRepo.languages || savedRepo.languages.length === 0) {
         try {
           const languages = await this.getLanguages(owner, repo);
-          const totalBytes = Object.values(languages).reduce((sum, bytes) => sum + bytes, 0);
-          savedRepo.languages = Object.entries(languages).map(([name, bytes]) => ({
-            name,
-            bytes,
-            percentage: totalBytes > 0 ? Math.round((bytes / totalBytes) * 100) : 0,
-          }));
+          const totalBytes = Object.values(languages).reduce(
+            (sum, bytes) => sum + bytes,
+            0
+          );
+          savedRepo.languages = Object.entries(languages).map(
+            ([name, bytes]) => ({
+              name,
+              bytes,
+              percentage:
+                totalBytes > 0 ? Math.round((bytes / totalBytes) * 100) : 0,
+            })
+          );
         } catch (err) {
           logger.debug(`No languages for ${owner}/${repo}`);
         }
       }
 
       await savedRepo.save();
-      
+
       logger.info(`Repository synced: ${ghRepo.full_name} (ID: ${ghRepo.id})`);
-      
+
       return savedRepo;
     } catch (error) {
-      logger.error(`Failed to sync repository ${owner}/${repo}:`, error.message);
-      
+      logger.error(
+        `Failed to sync repository ${owner}/${repo}:`,
+        error.message
+      );
+
       if (error.statusCode === 404) {
-        throw ApiError.notFound(`Repository ${owner}/${repo} not found on GitHub`);
+        throw ApiError.notFound(
+          `Repository ${owner}/${repo} not found on GitHub`
+        );
       }
-      
+
       throw error;
     }
   }
