@@ -37,10 +37,10 @@ const config = {
   // CORS - Frontend URL
   clientUrl: process.env.CLIENT_URL || "http://localhost:3000",
 
-  // Rate Limiting
+  // Rate Limiting (increased for better UX)
   rateLimit: {
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000,
-    max: parseInt(process.env.RATE_LIMIT_MAX, 10) || 100,
+    max: parseInt(process.env.RATE_LIMIT_MAX, 10) || 500, // Increased from 100
   },
 };
 

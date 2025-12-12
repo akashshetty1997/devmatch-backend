@@ -9,7 +9,7 @@ const ApiError = require("../utils/ApiError");
 
 /**
  * General API rate limiter
- * Default: 100 requests per 15 minutes
+ * 500 requests per 15 minutes
  */
 const apiLimiter = rateLimit({
   windowMs: config.rateLimit.windowMs,
@@ -29,11 +29,11 @@ const apiLimiter = rateLimit({
 
 /**
  * Strict rate limiter for auth routes
- * 10 requests per 15 minutes (for login, register, password reset)
+ * 30 requests per 15 minutes (increased from 10)
  */
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10,
+  windowMs: 15 * 60 * 1000,
+  max: 30,
   message: {
     success: false,
     message:
@@ -41,16 +41,16 @@ const authLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  skipSuccessfulRequests: true, // Don't count successful requests
+  skipSuccessfulRequests: true,
 });
 
 /**
  * AI endpoint rate limiter
- * 20 requests per hour (AI calls are expensive)
+ * 50 requests per hour (increased from 20)
  */
 const aiLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 20,
+  windowMs: 60 * 60 * 1000,
+  max: 50,
   message: {
     success: false,
     message: "AI request limit reached. Please try again after an hour.",
@@ -61,11 +61,11 @@ const aiLimiter = rateLimit({
 
 /**
  * GitHub API rate limiter
- * 30 requests per minute
+ * 60 requests per minute (increased from 30)
  */
 const githubLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 30,
+  windowMs: 60 * 1000,
+  max: 60,
   message: {
     success: false,
     message: "GitHub API rate limit reached. Please slow down.",
