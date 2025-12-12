@@ -99,14 +99,21 @@ const getJobs = asyncHandler(async (req, res) => {
 });
 
 /**
- * @desc    Get featured jobs
+ * @desc    Get featured jobs (fallback to latest if none)
  * @route   GET /api/jobs/featured
  * @access  Public
  */
 const getFeaturedJobs = asyncHandler(async (req, res) => {
   const { limit } = req.query;
+  const parsedLimit = parseInt(limit, 10) || 5;
 
-  const jobs = await JobService.getFeaturedJobs(parseInt(limit, 10) || 5);
+  // Try to get featured jobs first
+  let jobs = await JobService.getFeaturedJobs(parsedLimit);
+
+  // If no featured jobs, get recent jobs instead
+  if (!jobs || jobs.length === 0) {
+    jobs = await JobService.getRecentJobs(parsedLimit);
+  }
 
   return ApiResponse.success(res, "Featured jobs retrieved", jobs);
 });

@@ -25,6 +25,7 @@ const githubRoutes = require("./github.routes");
 
 
 
+
 // Mount routes
 router.use("/auth", authRoutes);
 router.use("/users", userRoutes);

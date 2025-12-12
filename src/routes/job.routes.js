@@ -20,6 +20,11 @@ const { validateObjectId } = require("../middleware/validate.middleware");
 // Public routes
 router.get("/", optionalAuth, JobController.getJobs);
 router.get("/featured", JobController.getFeaturedJobs);
+
+// Protected route - Get my jobs (MUST be before /:jobId)
+router.get("/me", protect, restrictTo("RECRUITER"), JobController.getMyJobs);
+
+// This must come AFTER /me to avoid treating "me" as a jobId
 router.get(
   "/:jobId",
   optionalAuth,

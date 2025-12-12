@@ -6,6 +6,9 @@
 const ReviewService = require("../services/ReviewService");
 const ApiResponse = require("../utils/ApiResponse");
 const asyncHandler = require("../utils/asyncHandler");
+const User = require("../models/User"); // Import User model
+const ApiError = require("../utils/ApiError"); // Import ApiError
+const Review = require("../models/Review"); // Import Review model
 
 /**
  * @desc    Create a review for a developer
@@ -125,6 +128,47 @@ const getMyReviews = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, "Your reviews retrieved", result);
 });
 
+/**
+ * @desc    Get reviews by username (public)
+ * @route   GET /api/reviews/user/:username
+ * @access  Public
+ */
+const getUserReviews = asyncHandler(async (req, res) => {
+  const { username } = req.params;
+  const { page = 1, limit = 10 } = req.query;
+
+  // Find user by username
+  const user = await User.findOne({ username: username.toLowerCase() });
+  
+  if (!user) {
+    throw ApiError.notFound("User not found");
+  }
+
+  const skip = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+
+  const [reviews, total] = await Promise.all([
+    Review.find({ reviewer: user._id })
+      .populate("repo", "name fullName description stars language")
+      .populate("developer", "headline githubUsername")
+      .populate("reviewer", "username avatar")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit, 10))
+      .lean(),
+    Review.countDocuments({ reviewer: user._id }),
+  ]);
+
+  return ApiResponse.success(res, "User reviews retrieved", {
+    reviews,
+    pagination: {
+      page: parseInt(page, 10),
+      limit: parseInt(limit, 10),
+      total,
+      totalPages: Math.ceil(total / parseInt(limit, 10)),
+    },
+  });
+});
+
 module.exports = {
   reviewDeveloper,
   reviewRepo,
@@ -133,4 +177,5 @@ module.exports = {
   updateReview,
   deleteReview,
   getMyReviews,
+  getUserReviews, 
 };

@@ -6,7 +6,11 @@
 const express = require("express");
 const router = express.Router();
 const DeveloperController = require("../controllers/DeveloperController");
-const { protect, optionalAuth, restrictTo } = require("../middleware/auth.middleware");
+const {
+  protect,
+  optionalAuth,
+  restrictTo,
+} = require("../middleware/auth.middleware");
 
 // ==================== PUBLIC STATIC ROUTES (must come first) ====================
 
@@ -14,7 +18,11 @@ const { protect, optionalAuth, restrictTo } = require("../middleware/auth.middle
 router.get("/", optionalAuth, DeveloperController.getDevelopers);
 
 // GET /api/developers/featured - Get featured developers
-router.get("/featured", optionalAuth, DeveloperController.getFeaturedDevelopers);
+router.get(
+  "/featured",
+  optionalAuth,
+  DeveloperController.getFeaturedDevelopers
+);
 
 // GET /api/developers/search - Search developers
 router.get("/search", optionalAuth, DeveloperController.searchDevelopers);
@@ -91,6 +99,22 @@ router.delete(
   DeveloperController.unpinRepo
 );
 
+// ==================== PUBLIC REPOS BY USERNAME ====================
+
+// GET /api/developers/:username/pinned-repos - Get developer's pinned repos (public)
+router.get(
+  "/:username/pinned-repos",
+  optionalAuth,
+  DeveloperController.getDeveloperPinnedRepos
+);
+
+// GET /api/developers/:username/repos - Get developer's GitHub repos (public)
+router.get(
+  "/:username/repos",
+  optionalAuth,
+  DeveloperController.getDeveloperRepos
+);
+
 // ==================== DYNAMIC ROUTE (must come LAST) ====================
 
 // GET /api/developers/:username - Get developer by username
@@ -98,6 +122,19 @@ router.get(
   "/:username",
   optionalAuth,
   DeveloperController.getDeveloperByUsername
+);
+
+router.post(
+  "/me/pinned-repos",
+  protect,
+  restrictTo("DEVELOPER"),
+  DeveloperController.pinRepo
+);
+router.delete(
+  "/me/pinned-repos/:repoId",
+  protect,
+  restrictTo("DEVELOPER"),
+  DeveloperController.unpinRepo
 );
 
 module.exports = router;

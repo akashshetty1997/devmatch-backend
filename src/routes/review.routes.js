@@ -13,12 +13,16 @@ const {
   updateReview,
   deleteReview,
   getMyReviews,
+  getUserReviews,  // Add this to imports
 } = require("../controllers/ReviewController");
-const { protect } = require("../middleware/auth.middleware");
+const { protect, optionalAuth } = require("../middleware/auth.middleware");
 const { validateObjectId } = require("../middleware/validate.middleware");
 
 // Get my reviews
 router.get("/me", protect, getMyReviews);
+
+// Get reviews by username (public)
+router.get("/user/:username", optionalAuth, getUserReviews);
 
 // Developer reviews
 router

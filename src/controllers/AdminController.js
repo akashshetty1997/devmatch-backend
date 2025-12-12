@@ -7,6 +7,9 @@ const User = require("../models/User");
 const Skill = require("../models/Skill");
 const JobPost = require("../models/JobPost");
 const Application = require("../models/Application");
+const Report = require("../models/Report");
+const Post = require("../models/Post");
+const Comment = require("../models/Comment");
 const ApiResponse = require("../utils/ApiResponse");
 const ApiError = require("../utils/ApiError");
 const asyncHandler = require("../utils/asyncHandler");
@@ -559,6 +562,247 @@ const deleteJob = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, "Job deleted");
 });
 
+// ==================== REPORTS ====================
+
+/**
+ * @desc    Get all reports
+ * @route   GET /api/admin/reports
+ * @access  Admin
+ */
+const getReports = asyncHandler(async (req, res) => {
+  const {
+    page = 1,
+    limit = 10,
+    type,
+    status,
+  } = req.query;
+
+  const skip = (parseInt(page) - 1) * parseInt(limit);
+
+  // Build filter
+  const filter = {};
+  if (type && type !== "all") {
+    filter.type = type;
+  }
+  if (status && status !== "all") {
+    filter.status = status;
+  }
+
+  // Fetch reports with populated references
+  const [reports, total] = await Promise.all([
+    Report.find(filter)
+      .populate("reporter", "username email avatar")
+      .populate("reportedUser", "username email avatar role")
+      .populate("reportedPost", "content author")
+      .populate("reportedComment", "content author")
+      .populate("reportedJob", "title companyName")
+      .populate("resolvedBy", "username")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .lean(),
+    Report.countDocuments(filter),
+  ]);
+
+  // Transform reports to include reportedContent
+  const transformedReports = reports.map((report) => {
+    let reportedContent = null;
+
+    if (report.type === "POST" && report.reportedPost) {
+      reportedContent = {
+        _id: report.reportedPost._id,
+        content: report.reportedPost.content,
+        author: report.reportedPost.author,
+      };
+    } else if (report.type === "COMMENT" && report.reportedComment) {
+      reportedContent = {
+        _id: report.reportedComment._id,
+        content: report.reportedComment.content,
+        author: report.reportedComment.author,
+      };
+    } else if (report.type === "JOB" && report.reportedJob) {
+      reportedContent = {
+        _id: report.reportedJob._id,
+        title: report.reportedJob.title,
+        companyName: report.reportedJob.companyName,
+      };
+    } else if (report.type === "USER" && report.reportedUser) {
+      reportedContent = {
+        _id: report.reportedUser._id,
+        username: report.reportedUser.username,
+      };
+    }
+
+    return {
+      ...report,
+      reportedContent,
+    };
+  });
+
+  const totalPages = Math.ceil(total / parseInt(limit));
+
+  return ApiResponse.success(res, "Reports retrieved", {
+    reports: transformedReports,
+    pagination: {
+      currentPage: parseInt(page),
+      totalPages,
+      totalItems: total,
+      hasNextPage: parseInt(page) < totalPages,
+      hasPrevPage: parseInt(page) > 1,
+    },
+  });
+});
+
+/**
+ * @desc    Get single report
+ * @route   GET /api/admin/reports/:reportId
+ * @access  Admin
+ */
+const getReport = asyncHandler(async (req, res) => {
+  const { reportId } = req.params;
+
+  const report = await Report.findById(reportId)
+    .populate("reporter", "username email avatar")
+    .populate("reportedUser", "username email avatar role")
+    .populate("reportedPost", "content author createdAt")
+    .populate("reportedComment", "content author createdAt")
+    .populate("reportedJob", "title companyName description")
+    .populate("resolvedBy", "username");
+
+  if (!report) {
+    throw ApiError.notFound("Report not found");
+  }
+
+  return ApiResponse.success(res, "Report retrieved", report);
+});
+
+/**
+ * @desc    Resolve report
+ * @route   PATCH /api/admin/reports/:reportId/resolve
+ * @access  Admin
+ */
+const resolveReport = asyncHandler(async (req, res) => {
+  const { reportId } = req.params;
+  const { action, adminNotes } = req.body;
+
+  if (!["DISMISS", "WARN", "REMOVE", "BAN"].includes(action)) {
+    throw ApiError.badRequest("Invalid action");
+  }
+
+  const report = await Report.findById(reportId)
+    .populate("reportedUser")
+    .populate("reportedPost")
+    .populate("reportedComment")
+    .populate("reportedJob");
+
+  if (!report) {
+    throw ApiError.notFound("Report not found");
+  }
+
+  if (report.status === "RESOLVED") {
+    throw ApiError.badRequest("Report already resolved");
+  }
+
+  // Perform action based on type
+  if (action === "REMOVE") {
+    // Remove the reported content
+    if (report.type === "POST" && report.reportedPost) {
+      await Post.findByIdAndDelete(report.reportedPost._id);
+    } else if (report.type === "COMMENT" && report.reportedComment) {
+      await Comment.findByIdAndDelete(report.reportedComment._id);
+    } else if (report.type === "JOB" && report.reportedJob) {
+      await JobPost.findByIdAndUpdate(report.reportedJob._id, { isActive: false });
+    }
+  } else if (action === "BAN") {
+    // Ban the reported user
+    if (report.reportedUser) {
+      await User.findByIdAndUpdate(report.reportedUser._id, {
+        status: "BANNED",
+        bannedAt: new Date(),
+        bannedReason: `Banned due to report: ${report.reason}`,
+      });
+    }
+  } else if (action === "WARN") {
+    // You could implement a warning system here
+    console.log(`Warning issued to user ${report.reportedUser?._id} for report ${reportId}`);
+  }
+
+  // Update report status
+  report.status = "RESOLVED";
+  report.action = action;
+  report.resolvedBy = req.user._id;
+  report.resolvedAt = new Date();
+  if (adminNotes) {
+    report.adminNotes = adminNotes;
+  }
+
+  await report.save();
+
+  return ApiResponse.success(res, "Report resolved", report);
+});
+
+/**
+ * @desc    Create report (for users to report content)
+ * @route   POST /api/reports
+ * @access  Authenticated
+ */
+const createReport = asyncHandler(async (req, res) => {
+  const { type, reason, description, reportedId } = req.body;
+
+  if (!type || !reason || !reportedId) {
+    throw ApiError.badRequest("Type, reason, and reportedId are required");
+  }
+
+  // Build report data
+  const reportData = {
+    type,
+    reason,
+    description,
+    reporter: req.user._id,
+  };
+
+  // Set the appropriate reference based on type
+  if (type === "POST") {
+    const post = await Post.findById(reportedId);
+    if (!post) throw ApiError.notFound("Post not found");
+    reportData.reportedPost = reportedId;
+    reportData.reportedUser = post.author;
+  } else if (type === "COMMENT") {
+    const comment = await Comment.findById(reportedId);
+    if (!comment) throw ApiError.notFound("Comment not found");
+    reportData.reportedComment = reportedId;
+    reportData.reportedUser = comment.author;
+  } else if (type === "JOB") {
+    const job = await JobPost.findById(reportedId);
+    if (!job) throw ApiError.notFound("Job not found");
+    reportData.reportedJob = reportedId;
+    reportData.reportedUser = job.recruiter;
+  } else if (type === "USER") {
+    const user = await User.findById(reportedId);
+    if (!user) throw ApiError.notFound("User not found");
+    reportData.reportedUser = reportedId;
+  }
+
+  // Check for duplicate report
+  const existingReport = await Report.findOne({
+    reporter: req.user._id,
+    type,
+    ...(type === "POST" && { reportedPost: reportedId }),
+    ...(type === "COMMENT" && { reportedComment: reportedId }),
+    ...(type === "JOB" && { reportedJob: reportedId }),
+    ...(type === "USER" && { reportedUser: reportedId }),
+    status: { $ne: "RESOLVED" },
+  });
+
+  if (existingReport) {
+    throw ApiError.badRequest("You have already reported this content");
+  }
+
+  const report = await Report.create(reportData);
+
+  return ApiResponse.success(res, "Report submitted successfully", report, 201);
+});
+
 module.exports = {
   // Dashboard
   getDashboardStats,
@@ -583,4 +827,9 @@ module.exports = {
   toggleJobFeatured,
   deactivateJob,
   deleteJob,
+  // Reports
+  getReports,
+  getReport,
+  resolveReport,
+  createReport,
 };

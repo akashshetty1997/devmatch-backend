@@ -494,6 +494,118 @@ const updateWorkPreferences = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * @desc    Get developer's pinned repos by username (public)
+ * @route   GET /api/developers/:username/pinned-repos
+ * @access  Public
+ */
+const getDeveloperPinnedRepos = asyncHandler(async (req, res) => {
+  const { username } = req.params;
+
+  // Find user by username
+  const user = await User.findOne({ 
+    username: username.toLowerCase(), 
+    role: "DEVELOPER" 
+  });
+  
+  if (!user) {
+    throw ApiError.notFound("Developer not found");
+  }
+
+  // Find developer profile with pinned repos populated
+  const profile = await DeveloperProfile.findOne({ user: user._id })
+    .populate("pinnedRepos");
+
+  if (!profile) {
+    throw ApiError.notFound("Developer profile not found");
+  }
+
+  // Check if profile is public (skip check if viewing own profile)
+  const isOwnProfile = req.user && req.user._id.equals(user._id);
+  if (!profile.isPublic && !isOwnProfile) {
+    throw ApiError.forbidden("This profile is private");
+  }
+
+  return ApiResponse.success(res, "Pinned repos retrieved", {
+    pinnedRepos: profile.pinnedRepos || [],
+  });
+});
+
+/**
+ * @desc    Get developer's GitHub repos by username (public)
+ * @route   GET /api/developers/:username/repos
+ * @access  Public
+ */
+const getDeveloperRepos = asyncHandler(async (req, res) => {
+  const { username } = req.params;
+  const { page = 1, limit = 10 } = req.query;
+
+  // Find user by username
+  const user = await User.findOne({ 
+    username: username.toLowerCase(), 
+    role: "DEVELOPER" 
+  });
+  
+  if (!user) {
+    throw ApiError.notFound("Developer not found");
+  }
+
+  // Find developer profile
+  const profile = await DeveloperProfile.findOne({ user: user._id });
+
+  if (!profile) {
+    throw ApiError.notFound("Developer profile not found");
+  }
+
+  // Check if profile is public (skip check if viewing own profile)
+  const isOwnProfile = req.user && req.user._id.equals(user._id);
+  if (!profile.isPublic && !isOwnProfile) {
+    throw ApiError.forbidden("This profile is private");
+  }
+
+  // If developer has GitHub username, fetch repos from GitHub
+  if (profile.githubUsername) {
+    try {
+      const GitHubService = require("../services/GitHubService");
+      const repos = await GitHubService.getUserRepositories(profile.githubUsername, {
+        page: parseInt(page, 10),
+        perPage: parseInt(limit, 10),
+        sort: "updated",
+        direction: "desc",
+      });
+
+      return ApiResponse.success(res, "Repositories retrieved", {
+        repos,
+        pagination: {
+          page: parseInt(page, 10),
+          limit: parseInt(limit, 10),
+          total: repos.length,
+        },
+      });
+    } catch (error) {
+      console.error("Failed to fetch GitHub repos:", error.message);
+      return ApiResponse.success(res, "Repositories retrieved", {
+        repos: [],
+        pagination: {
+          page: parseInt(page, 10),
+          limit: parseInt(limit, 10),
+          total: 0,
+        },
+      });
+    }
+  }
+
+  // No GitHub username connected
+  return ApiResponse.success(res, "No GitHub username connected", {
+    repos: [],
+    pagination: {
+      page: parseInt(page, 10),
+      limit: parseInt(limit, 10),
+      total: 0,
+    },
+  });
+});
+
 module.exports = {
   getDevelopers,
   getFeaturedDevelopers,
@@ -508,4 +620,6 @@ module.exports = {
   pinRepo,
   unpinRepo,
   updateWorkPreferences,
+  getDeveloperPinnedRepos,
+  getDeveloperRepos, 
 };

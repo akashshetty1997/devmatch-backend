@@ -26,7 +26,6 @@ const skillSchema = new mongoose.Schema(
     // URL-friendly unique identifier (auto-generated from name)
     slug: {
       type: String,
-      required: true,
       unique: true,
       lowercase: true,
       trim: true,
@@ -85,14 +84,16 @@ skillSchema.index({ category: 1, isActive: 1, name: 1 });
 skillSchema.index({ name: "text" }); // Text search
 
 /**
- * Pre-save hook: Generate slug from name
+ * Pre-validate hook: Generate slug from name (runs before validation)
+ * This ensures slug is generated before required field validation
  */
-skillSchema.pre("save", function (next) {
-  if (this.isModified("name")) {
+skillSchema.pre("validate", function (next) {
+  if (this.name && (this.isModified("name") || !this.slug)) {
     this.slug = this.name
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-") // Replace non-alphanumeric with dash
-      .replace(/^-|-$/g, ""); // Remove leading/trailing dashes
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
   }
   next();
 });

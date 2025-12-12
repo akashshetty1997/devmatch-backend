@@ -237,7 +237,9 @@ const getRepoById = asyncHandler(async (req, res) => {
     // If still not found locally, fetch from GitHub and cache it
     if (!repo) {
       console.log("8. Not in cache, fetching from GitHub...");
-      console.log("9. GitHub URL: https://api.github.com/repositories/" + githubId);
+      console.log(
+        "9. GitHub URL: https://api.github.com/repositories/" + githubId
+      );
 
       // Use native https module to bypass any axios interceptors
       const https = require("https");
@@ -259,7 +261,10 @@ const getRepoById = asyncHandler(async (req, res) => {
 
           const request = https.request(options, (response) => {
             console.log("11. Response received, status:", response.statusCode);
-            console.log("12. Response headers:", JSON.stringify(response.headers, null, 2));
+            console.log(
+              "12. Response headers:",
+              JSON.stringify(response.headers, null, 2)
+            );
 
             let data = "";
 
@@ -269,12 +274,18 @@ const getRepoById = asyncHandler(async (req, res) => {
 
             response.on("end", () => {
               console.log("13. Response complete, data length:", data.length);
-              console.log("14. First 500 chars of response:", data.substring(0, 500));
+              console.log(
+                "14. First 500 chars of response:",
+                data.substring(0, 500)
+              );
 
               if (response.statusCode === 200) {
                 try {
                   const parsed = JSON.parse(data);
-                  console.log("15. Successfully parsed JSON, repo name:", parsed.full_name);
+                  console.log(
+                    "15. Successfully parsed JSON, repo name:",
+                    parsed.full_name
+                  );
                   resolve(parsed);
                 } catch (e) {
                   console.log("15. ERROR parsing JSON:", e.message);
@@ -287,7 +298,10 @@ const getRepoById = asyncHandler(async (req, res) => {
                 console.log("15. GitHub returned 403 (rate limited)");
                 reject({ status: 403, message: "Rate limited" });
               } else {
-                console.log("15. GitHub returned unexpected status:", response.statusCode);
+                console.log(
+                  "15. GitHub returned unexpected status:",
+                  response.statusCode
+                );
                 reject({
                   status: response.statusCode,
                   message: `GitHub API error: ${response.statusCode}`,
@@ -322,7 +336,6 @@ const getRepoById = asyncHandler(async (req, res) => {
 
         repo = savedRepo.toObject ? savedRepo.toObject() : savedRepo;
         console.log("18. Converted to object");
-
       } catch (error) {
         console.log("ERROR CAUGHT:", error);
         console.log("Error status:", error.status);
@@ -362,17 +375,32 @@ const getRepoByFullName = asyncHandler(async (req, res) => {
   const { owner, repo } = req.params;
   const fullName = `${owner}/${repo}`;
 
-  // Check local cache first
-  let repoData = await RepoSnapshot.findOne({ fullName }).lean();
+  console.log("=== getRepoByFullName START ===");
+  console.log("Looking for:", fullName);
 
-  if (repoData && !repoData.needsSync?.()) {
+  // Check local cache first (don't use .lean() so we get the document with methods)
+  let repoData = await RepoSnapshot.findOne({ fullName });
+
+  console.log("Found in cache:", repoData ? "YES" : "NO");
+
+  if (repoData) {
+    console.log("Cached repo _id:", repoData._id);
+  }
+
+  // If found and doesn't need sync, return it
+  if (repoData && !repoData.needsSync()) {
+    console.log("Returning cached data with _id:", repoData._id.toString());
+    console.log("=== getRepoByFullName END ===");
     return ApiResponse.success(res, "Repository retrieved", repoData);
   }
 
   // Fetch from GitHub
   try {
+    console.log("Fetching from GitHub API...");
     const response = await githubApi.get(`/repos/${owner}/${repo}`);
     const githubRepo = response.data;
+
+    console.log("GitHub response received, githubId:", githubRepo.id);
 
     // Save/update in cache
     repoData = await RepoSnapshot.findOrCreateFromGitHub(
@@ -380,12 +408,22 @@ const getRepoByFullName = asyncHandler(async (req, res) => {
       githubRepo
     );
 
+    console.log("Saved to database, _id:", repoData._id.toString());
+    console.log("=== getRepoByFullName END ===");
+
     return ApiResponse.success(res, "Repository retrieved", repoData);
   } catch (error) {
+    console.error("GitHub API error:", error.response?.data || error.message);
+
     if (error.response?.status === 404) {
       throw ApiError.notFound("Repository not found on GitHub");
     }
-    throw ApiError.internal("Failed to fetch repository");
+    if (error.response?.status === 403) {
+      throw ApiError.tooManyRequests(
+        "GitHub API rate limit exceeded. Please try again later."
+      );
+    }
+    throw ApiError.internal("Failed to fetch repository from GitHub");
   }
 });
 
@@ -492,7 +530,10 @@ const getRepoReadme = asyncHandler(async (req, res) => {
     repo.readmeFetchedAt = new Date();
     await repo.save();
 
-    console.log("README fetched and cached, length:", readmeContent?.length || 0);
+    console.log(
+      "README fetched and cached, length:",
+      readmeContent?.length || 0
+    );
     console.log("=== getRepoReadme END ===");
 
     return ApiResponse.success(res, "README retrieved", {

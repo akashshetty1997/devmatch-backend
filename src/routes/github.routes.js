@@ -6,6 +6,7 @@
 const express = require("express");
 const router = express.Router();
 const GitHubService = require("../services/GitHubService");
+const RepoSnapshot = require("../models/RepoSnapshot");
 const ApiResponse = require("../utils/ApiResponse");
 const asyncHandler = require("../utils/asyncHandler");
 const { optionalAuth } = require("../middleware/auth.middleware");
@@ -41,7 +42,7 @@ router.get(
 );
 
 /**
- * @desc    Get repository details
+ * @desc    Get repository details (with MongoDB caching)
  * @route   GET /api/github/repos/:owner/:repo
  * @access  Public
  */
@@ -50,10 +51,67 @@ router.get(
   optionalAuth,
   asyncHandler(async (req, res) => {
     const { owner, repo } = req.params;
+    const fullName = `${owner}/${repo}`;
 
-    const repository = await GitHubService.getRepository(owner, repo);
+    console.log("=== getRepoByFullName START ===");
+    console.log("Looking for:", fullName);
 
-    return ApiResponse.success(res, "Repository found", repository);
+    // Check local cache first
+    let repoData = await RepoSnapshot.findOne({ fullName });
+
+    console.log("Found in cache:", repoData ? "YES" : "NO");
+
+    if (repoData) {
+      console.log("Cached repo _id:", repoData._id);
+    }
+
+    // If found and doesn't need sync, return it
+    if (repoData && !repoData.needsSync()) {
+      console.log("Returning cached data with _id:", repoData._id.toString());
+      return ApiResponse.success(res, "Repository retrieved", repoData);
+    }
+
+    // Fetch from GitHub
+    console.log("Fetching from GitHub API...");
+    const githubRepo = await GitHubService.getRepository(owner, repo);
+
+    console.log("GitHub response received, githubId:", githubRepo.id);
+
+    // Save/update in cache
+    repoData = await RepoSnapshot.findOrCreateFromGitHub(
+      githubRepo.id,
+      githubRepo
+    );
+
+    console.log("Saved to database, _id:", repoData._id.toString());
+    console.log("=== getRepoByFullName END ===");
+
+    return ApiResponse.success(res, "Repository retrieved", repoData);
+  })
+);
+
+/**
+ * @desc    Sync repository to database
+ * @route   POST /api/github/repos/:owner/:repo/sync
+ * @access  Public
+ */
+router.post(
+  "/repos/:owner/:repo/sync",
+  optionalAuth,
+  asyncHandler(async (req, res) => {
+    const { owner, repo } = req.params;
+    const fullName = `${owner}/${repo}`;
+
+    // Fetch fresh data from GitHub
+    const githubRepo = await GitHubService.getRepository(owner, repo);
+
+    // Save/update in cache
+    const repoData = await RepoSnapshot.findOrCreateFromGitHub(
+      githubRepo.id,
+      githubRepo
+    );
+
+    return ApiResponse.success(res, "Repository synced", repoData);
   })
 );
 

@@ -39,4 +39,9 @@ router.patch("/jobs/:jobId/featured", AdminController.toggleJobFeatured);
 router.patch("/jobs/:jobId/deactivate", AdminController.deactivateJob);
 router.delete("/jobs/:jobId", AdminController.deleteJob);
 
+// ==================== REPORTS ====================
+router.get("/reports", AdminController.getReports);
+router.get("/reports/:reportId", AdminController.getReport);
+router.patch("/reports/:reportId/resolve", AdminController.resolveReport);
+
 module.exports = router;
